@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Hidden Geometry Removal",
     "author": "Seungwoo Lee",
-    "version": (0, 0, 2),
+    "version": (0, 1, 0),
     "blender": (4, 0, 0),
     "location": "View3D > Sidebar (N) > Hidden Removal",
     "description": "Removes geometry that is not visible from multiple camera positions",
@@ -19,37 +19,64 @@ from bpy.types import Operator, Panel, PropertyGroup
 from bpy.utils import register_class, unregister_class
 
 
-def create_camera_ring(num_cameras, radius, z_angle, rotation_offset=0, prefix="Camera"):
+def create_camera_ring(row_angle, camera_heights, radius, prefix="Camera"):
     """
-    Create a ring of cameras at specified height and radius
+    Create cameras along a vertical spline at specified row angle
     """
-    height = radius * math.sin(math.radians(z_angle))
-    ring_radius = radius * math.cos(math.radians(z_angle))
     cameras = []
-    for i in range(num_cameras):
-        angle = (2 * math.pi * i) / num_cameras + math.radians(rotation_offset)
-        x = ring_radius * math.cos(angle)
-        y = ring_radius * math.sin(angle)
+    for i, height_angle in enumerate(camera_heights):
+        # Convert angles to radians
+        height_rad = math.radians(height_angle)
+        row_rad = math.radians(row_angle)
+        
+        # Calculate position on sphere
+        height = radius * math.sin(height_rad)
+        horizontal_radius = radius * math.cos(height_rad)
+        x = horizontal_radius * math.cos(row_rad)
+        y = horizontal_radius * math.sin(row_rad)
         z = height
-        cam_data = bpy.data.cameras.new(name=f"{prefix}.{i+1}")
-        cam_obj = bpy.data.objects.new(f"{prefix}.{i+1}", cam_data)
+        
+        # Create camera
+        cam_data = bpy.data.cameras.new(name=f"{prefix}.Row{row_angle:.0f}.{i+1}")
+        cam_obj = bpy.data.objects.new(f"{prefix}.Row{row_angle:.0f}.{i+1}", cam_data)
         bpy.context.scene.collection.objects.link(cam_obj)
+        
+        # Position camera
         cam_obj.location = (x, y, z)
+        
+        # Point camera to center (0,0,0)
         direction = cam_obj.location
         cam_obj.rotation_euler = direction.to_track_quat('Z', 'Y').to_euler()
+        
         cameras.append(cam_obj)
     return cameras
 
 
-def create_camera_setup(num_total_cameras=8, sphere_radius=10):
-    if num_total_cameras < 8:
-        num_total_cameras = 8
-    if num_total_cameras % 2 != 0:
-        num_total_cameras += 1
-    cameras_per_ring = num_total_cameras // 2
-    upper_cameras = create_camera_ring(cameras_per_ring, sphere_radius, 45, 0, "UpperCam")
-    lower_cameras = create_camera_ring(cameras_per_ring, sphere_radius, -45, 360 / cameras_per_ring, "LowerCam")
-    return upper_cameras + lower_cameras
+def create_camera_setup(rows=4, cameras_per_row=4, sphere_radius=10):
+    """
+    Create cameras arranged in vertical splines around a sphere
+    """
+    # Calculate angles between rows
+    row_angle_step = 360.0 / rows
+    
+    # Calculate camera height angles
+    cameras_per_half = cameras_per_row // 2
+    height_angle_step = 90.0 / (cameras_per_half + 1)
+    height_angles = []
+    
+    # Generate positive and negative angles
+    for i in range(cameras_per_half):
+        angle = height_angle_step * (i + 1)
+        height_angles.extend([angle, -angle])
+    
+    # Create cameras for each row
+    all_cameras = []
+    for i in range(rows):
+        row_angle = i * row_angle_step
+        row_cameras = create_camera_ring(row_angle, height_angles, sphere_radius)
+        all_cameras.extend(row_cameras)
+    
+    return all_cameras
 
 
 def select_visible_faces_multi_cameras(obj, cameras, precision):
@@ -111,6 +138,7 @@ def delete_invisible_faces():
     bpy.ops.mesh.reveal()
     bpy.ops.object.mode_set(mode='OBJECT')
 
+
 def delete_all_cameras():
     for obj in bpy.data.objects:
         if obj.type == 'CAMERA':
@@ -118,16 +146,25 @@ def delete_all_cameras():
 
 
 class HiddenRemovalProperties(PropertyGroup):
-    num_cameras: IntProperty(
-        name="Number of Cameras",  # Added name back for side-by-side layout
-        description="Total number of cameras to use (will be split between upper and lower rings)",
-        default=8,
-        min=8,
-        max=64,
+    rows: IntProperty(
+        name="Number of Rows",
+        description="Number of vertical splines around the sphere",
+        default=4,
+        min=2,
+        max=12,
+    )
+    
+    cameras_per_row: IntProperty(
+        name="Cameras per Row",
+        description="Number of cameras per vertical spline (must be even)",
+        default=4,
+        min=2,
+        max=12,
+        step=2
     )
 
     sphere_radius: FloatProperty(
-        name="Camera Distance",  # Added name back for side-by-side layout
+        name="Camera Distance",
         description="Distance of cameras from the object center",
         default=10.0,
         min=0.1,
@@ -153,6 +190,7 @@ class HiddenRemovalProperties(PropertyGroup):
         default='HIGH',
     )
 
+
 class OBJECT_OT_hidden_geometry_removal(Operator):
     bl_idname = "object.hidden_geometry_removal"
     bl_label = "Remove Hidden Geometry"
@@ -167,12 +205,11 @@ class OBJECT_OT_hidden_geometry_removal(Operator):
         props = context.scene.hidden_removal_props
 
         delete_all_cameras()
-        cameras = create_camera_setup(props.num_cameras, props.sphere_radius)
+        cameras = create_camera_setup(props.rows, props.cameras_per_row, props.sphere_radius)
         select_visible_faces_multi_cameras(obj, cameras, props.precision_mode)
 
         if props.delete_select_mode == 'DELETE':
             delete_invisible_faces()
-        # If OUTER_SELECT, do nothing after selecting faces
 
         delete_all_cameras()
         self.report({'INFO'}, f"Processed geometry using {len(cameras)} cameras")
@@ -197,10 +234,16 @@ class VIEW3D_PT_hidden_geometry_removal(Panel):
         box = layout.box()
         box.label(text="Settings")
 
-        # Number of Cameras section
+        # Rows section
         col = box.column()
-        col.label(text="Higher values preserve more geometric detail")
-        col.prop(props, "num_cameras")
+        col.label(text="Number of vertical camera splines")
+        col.prop(props, "rows")
+        col.separator()
+
+        # Cameras per Row section
+        col = box.column()
+        col.label(text="Number of cameras per spline")
+        col.prop(props, "cameras_per_row")
         col.separator()
 
         # Camera Distance section
