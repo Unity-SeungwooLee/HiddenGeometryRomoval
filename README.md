@@ -1,4 +1,4 @@
-# Hidden Geometry Removal
+# Hidden Geometry Removal (Compatible with Blender 4.0+)
 ### A Blender Add-on for Optimizing 3D Models
 
 ![Blender Version](https://img.shields.io/badge/Blender-4.0%2B-orange)
