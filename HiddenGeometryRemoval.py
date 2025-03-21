@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Hidden Geometry Removal",
     "author": "Seungwoo Lee",
-    "version": (0, 1, 0),
+    "version": (0, 1, 1),
     "blender": (4, 0, 0),
     "location": "View3D > Sidebar (N) > Hidden Removal",
     "description": "Removes geometry that is not visible from multiple camera positions",
@@ -14,12 +14,25 @@ import bpy
 import bmesh
 import math
 from mathutils import Vector
-from bpy.props import IntProperty, FloatProperty, EnumProperty
+from bpy.props import IntProperty, FloatProperty, EnumProperty, BoolProperty
 from bpy.types import Operator, Panel, PropertyGroup
 from bpy.utils import register_class, unregister_class
 
 
-def create_camera_ring(row_angle, camera_heights, radius, prefix="Camera"):
+def get_or_create_camera_collection():
+    """
+    Get the 'Cameras' collection or create it if it doesn't exist
+    """
+    if "Cameras" in bpy.data.collections:
+        return bpy.data.collections["Cameras"]
+    
+    # Create a new collection
+    cam_collection = bpy.data.collections.new("Cameras")
+    bpy.context.scene.collection.children.link(cam_collection)
+    return cam_collection
+
+
+def create_camera_ring(row_angle, camera_heights, radius, collection, prefix="Camera"):
     """
     Create cameras along a vertical spline at specified row angle
     """
@@ -37,9 +50,12 @@ def create_camera_ring(row_angle, camera_heights, radius, prefix="Camera"):
         z = height
         
         # Create camera
-        cam_data = bpy.data.cameras.new(name=f"{prefix}.Row{row_angle:.0f}.{i+1}")
-        cam_obj = bpy.data.objects.new(f"{prefix}.Row{row_angle:.0f}.{i+1}", cam_data)
-        bpy.context.scene.collection.objects.link(cam_obj)
+        temp_name = f"{prefix}.Row{row_angle:.0f}.{i+1}"
+        cam_data = bpy.data.cameras.new(name=temp_name)
+        cam_obj = bpy.data.objects.new(temp_name, cam_data)
+        
+        # Add camera to the collection instead of scene collection
+        collection.objects.link(cam_obj)
         
         # Position camera
         cam_obj.location = (x, y, z)
@@ -52,10 +68,16 @@ def create_camera_ring(row_angle, camera_heights, radius, prefix="Camera"):
     return cameras
 
 
-def create_camera_setup(rows=4, cameras_per_row=4, sphere_radius=10):
+def create_camera_setup(rows=4, cameras_per_row=4, sphere_radius=10, keep_cameras=False):
     """
     Create cameras arranged in vertical splines around a sphere
     """
+    # Determine which collection to use
+    if keep_cameras:
+        collection = get_or_create_camera_collection()
+    else:
+        collection = bpy.context.scene.collection
+    
     # Calculate angles between rows
     row_angle_step = 360.0 / rows
     
@@ -73,7 +95,7 @@ def create_camera_setup(rows=4, cameras_per_row=4, sphere_radius=10):
     all_cameras = []
     for i in range(rows):
         row_angle = i * row_angle_step
-        row_cameras = create_camera_ring(row_angle, height_angles, sphere_radius)
+        row_cameras = create_camera_ring(row_angle, height_angles, sphere_radius, collection)
         all_cameras.extend(row_cameras)
     
     return all_cameras
@@ -140,6 +162,17 @@ def delete_invisible_faces():
 
 
 def delete_all_cameras():
+    # First try to find the Cameras collection
+    if "Cameras" in bpy.data.collections:
+        cam_collection = bpy.data.collections["Cameras"]
+        # Remove all camera objects from the collection
+        for obj in list(cam_collection.objects):
+            if obj.type == 'CAMERA':
+                bpy.data.objects.remove(obj, do_unlink=True)
+        # Also remove the collection itself
+        bpy.data.collections.remove(cam_collection)
+    
+    # Also look for any cameras in the scene that might not be in the collection
     for obj in bpy.data.objects:
         if obj.type == 'CAMERA':
             bpy.data.objects.remove(obj, do_unlink=True)
@@ -189,6 +222,12 @@ class HiddenRemovalProperties(PropertyGroup):
         ],
         default='HIGH',
     )
+    
+    keep_cameras: BoolProperty(
+        name="Keep Cameras",
+        description="Keep the created cameras in a 'Cameras' collection",
+        default=False,
+    )
 
 
 class OBJECT_OT_hidden_geometry_removal(Operator):
@@ -204,14 +243,26 @@ class OBJECT_OT_hidden_geometry_removal(Operator):
 
         props = context.scene.hidden_removal_props
 
+        # Delete existing cameras
         delete_all_cameras()
-        cameras = create_camera_setup(props.rows, props.cameras_per_row, props.sphere_radius)
+            
+        # Create cameras setup with appropriate collection based on keep_cameras setting
+        cameras = create_camera_setup(
+            props.rows, 
+            props.cameras_per_row, 
+            props.sphere_radius, 
+            props.keep_cameras
+        )
+        
         select_visible_faces_multi_cameras(obj, cameras, props.precision_mode)
 
         if props.delete_select_mode == 'DELETE':
             delete_invisible_faces()
 
-        delete_all_cameras()
+        # Only delete cameras if we're not keeping them
+        if not props.keep_cameras:
+            delete_all_cameras()
+            
         self.report({'INFO'}, f"Processed geometry using {len(cameras)} cameras")
         return {'FINISHED'}
 
@@ -260,6 +311,11 @@ class VIEW3D_PT_hidden_geometry_removal(Panel):
         # Precision Mode section
         col = box.column()
         col.prop(props, "precision_mode")
+        col.separator()
+        
+        # Camera visibility option
+        col = box.column()
+        col.prop(props, "keep_cameras")
         col.separator()
         
         # Remove Hidden Geometry button with double height
