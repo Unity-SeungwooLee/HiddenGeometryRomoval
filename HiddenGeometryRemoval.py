@@ -1,10 +1,10 @@
 bl_info = {
     "name": "Hidden Geometry Removal",
     "author": "Seungwoo Lee",
-    "version": (0, 1, 1),
+    "version": (0, 1, 2),
     "blender": (4, 0, 0),
     "location": "View3D > Sidebar (N) > Hidden Removal",
-    "description": "Removes geometry that is not visible from multiple camera positions",
+    "description": "Removes geometry that is not visible from multiple camera positions. Includes experimental randomized face selection.",
     "warning": "",
     "doc_url": "",
     "category": "Object",
@@ -13,6 +13,7 @@ bl_info = {
 import bpy
 import bmesh
 import math
+import random
 from mathutils import Vector
 from bpy.props import IntProperty, FloatProperty, EnumProperty, BoolProperty
 from bpy.types import Operator, Panel, PropertyGroup
@@ -101,7 +102,15 @@ def create_camera_setup(rows=4, cameras_per_row=4, sphere_radius=10, keep_camera
     return all_cameras
 
 
-def select_visible_faces_multi_cameras(obj, cameras, precision):
+def are_faces_similar(face1, face2, max_angle_diff):
+    """
+    Check if two faces are similar based on their normal angle
+    """
+    angle = abs(face1.normal.angle(face2.normal))
+    return math.degrees(angle) <= max_angle_diff
+
+
+def select_visible_faces_multi_cameras(obj, cameras, precision, experimental, sampling_ratio, flatness_angle):
     bpy.ops.object.mode_set(mode='OBJECT')
     scene = bpy.context.scene
     mesh = obj.data
@@ -112,20 +121,40 @@ def select_visible_faces_multi_cameras(obj, cameras, precision):
     for face in bm.faces:
         face.select = False
 
+    # Calculate number of faces to sample
+    total_faces = len(bm.faces)
+    
+    if experimental:
+        sample_count = max(1, int(total_faces * (sampling_ratio / 100)))
+        # Randomly select initial faces to check
+        initial_faces = random.sample(list(bm.faces), sample_count)
+    else:
+        # Check all faces if not in experimental mode
+        initial_faces = list(bm.faces)
+    
     for camera in cameras:
         cam_location = camera.matrix_world.translation
         cam_direction = camera.matrix_world.to_quaternion() @ Vector((0.0, 0.0, -1.0))
         cam_fov = camera.data.angle if camera.data.type == 'PERSP' else math.radians(90.0)
 
-        for face in bm.faces:
-            if face.select:
-                continue
+        # Faces to check this iteration (starts with initial sample)
+        faces_to_check = set(initial_faces)
+        checked_faces = set()
 
-            points_to_check = [obj.matrix_world @ face.calc_center_median()]
+        while faces_to_check:
+            current_face = faces_to_check.pop()
+            
+            # Skip if already checked or selected
+            if current_face in checked_faces or current_face.select:
+                continue
+            
+            checked_faces.add(current_face)
+
+            points_to_check = [obj.matrix_world @ current_face.calc_center_median()]
             
             if precision == 'HIGH':
-                points_to_check.extend([obj.matrix_world @ vert.co for vert in face.verts])
-                points_to_check.extend([(obj.matrix_world @ edge.verts[0].co + obj.matrix_world @ edge.verts[1].co) / 2 for edge in face.edges])
+                points_to_check.extend([obj.matrix_world @ vert.co for vert in current_face.verts])
+                points_to_check.extend([(obj.matrix_world @ edge.verts[0].co + obj.matrix_world @ edge.verts[1].co) / 2 for edge in current_face.edges])
 
             for point in points_to_check:
                 to_point = (point - cam_location).normalized()
@@ -141,12 +170,23 @@ def select_visible_faces_multi_cameras(obj, cameras, precision):
                     if result[0]:
                         hit_distance = (result[1] - point).length
                         if hit_distance < 0.001:
-                            face.select = True
+                            current_face.select = True
+
+                            # Expand to similar faces based on flatness
+                            if experimental:
+                                for neighbor in current_face.verts:
+                                    for linked_face in neighbor.link_faces:
+                                        if (linked_face not in checked_faces and 
+                                            not linked_face.select and 
+                                            are_faces_similar(current_face, linked_face, flatness_angle)):
+                                            faces_to_check.add(linked_face)
                             break
 
     bm.to_mesh(mesh)
     bm.free()
     bpy.ops.object.mode_set(mode='EDIT')
+    
+    return total_faces
 
 
 def delete_invisible_faces():
@@ -229,6 +269,29 @@ class HiddenRemovalProperties(PropertyGroup):
         default=False,
     )
 
+    experimental: BoolProperty(
+        name="Experimental",
+        description="Enable experimental randomized face selection and similar face expansion",
+        default=False,
+    )
+
+    sampling_ratio: IntProperty(
+        name="Face Sampling Ratio",
+        description="Percentage of faces to randomly sample for visibility check",
+        default=30,
+        min=1,
+        max=100,
+        subtype='PERCENTAGE'
+    )
+
+    flatness_angle: FloatProperty(
+        name="Flatness Angle",
+        description="Maximum angle difference for considering faces similar",
+        default=30.0,
+        min=10.0,
+        max=90.0,
+    )
+
 
 class OBJECT_OT_hidden_geometry_removal(Operator):
     bl_idname = "object.hidden_geometry_removal"
@@ -254,16 +317,33 @@ class OBJECT_OT_hidden_geometry_removal(Operator):
             props.keep_cameras
         )
         
-        select_visible_faces_multi_cameras(obj, cameras, props.precision_mode)
+        # Process faces and get total face count
+        total_faces = select_visible_faces_multi_cameras(
+            obj, 
+            cameras, 
+            props.precision_mode,
+            props.experimental,
+            props.sampling_ratio,
+            props.flatness_angle
+        )
 
         if props.delete_select_mode == 'DELETE':
             delete_invisible_faces()
+        
+        # Count remaining faces
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        visible_faces = len(obj.data.polygons)
+        bpy.ops.object.mode_set(mode='OBJECT')
 
         # Only delete cameras if we're not keeping them
         if not props.keep_cameras:
             delete_all_cameras()
             
-        self.report({'INFO'}, f"Processed geometry using {len(cameras)} cameras")
+        # Report detailed statistics
+        removal_percent = ((total_faces - visible_faces) / total_faces * 100) if total_faces > 0 else 0
+        self.report({'INFO'}, f"Found {visible_faces}/{total_faces} visible faces ({removal_percent:.1f}% removed) using {len(cameras)} cameras")
+        
         return {'FINISHED'}
 
 
@@ -317,6 +397,22 @@ class VIEW3D_PT_hidden_geometry_removal(Panel):
         col = box.column()
         col.prop(props, "keep_cameras")
         col.separator()
+
+        # Experimental option
+        col = box.column()
+        col.prop(props, "experimental")
+        
+        # Experimental settings (conditionally shown)
+        if props.experimental:
+            col = box.column()
+            col.prop(props, "sampling_ratio")
+            col.label(text="Percentage of faces to check")
+            col.separator()
+
+            col = box.column()
+            col.prop(props, "flatness_angle")
+            col.label(text="Angle threshold for similar faces")
+            col.separator()
         
         # Remove Hidden Geometry button with double height
         row = box.row()
