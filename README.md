@@ -2,14 +2,14 @@
 ### A Blender Add-on for Optimizing 3D Models
 
 ![Blender Version](https://img.shields.io/badge/Blender-4.0%2B-orange)
-![Version](https://img.shields.io/badge/Version-0.1.1-blue)
+![Version](https://img.shields.io/badge/Version-0.1.2-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## Overview
 
 Hidden Geometry Removal is a powerful Blender add-on that automatically identifies and removes geometry that cannot be seen from any viewing angle. This tool is perfect for optimizing 3D models for real-time applications, game engines, or web-based 3D viewers.
 
-![image](https://github.com/user-attachments/assets/0e078aad-0ad6-4a34-bb28-9e93b2060298)
+![image](https://github.com/user-attachments/assets/5b3d57c6-6b47-4a98-ac3b-9883a3bb17dd)
 
 ## Features
 
@@ -19,6 +19,8 @@ Hidden Geometry Removal is a powerful Blender add-on that automatically identifi
 - 🎯 Support for both deletion and selection modes
 - 🛠️ User-friendly interface
 - 📷 Option to keep cameras for visualization
+- 🧪 Experimental mode with randomized face selection
+- 📊 Configurable face sampling and flatness threshold
 
 ## Installation
 
@@ -38,6 +40,7 @@ Hidden Geometry Removal is a powerful Blender add-on that automatically identifi
    - **Delete/Select Mode**: Choose between removing hidden geometry or selecting visible faces
    - **Precision**: Toggle between high and low precision analysis
    - **Keep Cameras**: Option to retain cameras in a 'Cameras' collection for visualization
+   - **Experimental Mode**: Enable advanced face selection techniques
 4. Click "Remove Hidden Geometry" to process your mesh
 
 ## How It Works
@@ -67,6 +70,16 @@ The add-on creates a spherical distribution of cameras around your object using:
 - **Low Precision**: Only checks face centers (faster but less precise)
 - **Keep Cameras**: When enabled, cameras are kept in a 'Cameras' collection for visualization and debugging
 
+### Experimental Mode Options
+- **Face Sampling Ratio**: Percentage of faces to randomly sample for visibility check
+  - Minimum: 1%
+  - Maximum: 100%
+  - Default: 30%
+- **Flatness Angle**: Maximum angle difference for considering faces similar
+  - Minimum: 10°
+  - Maximum: 90°
+  - Default: 30°
+
 ## Best Practices
 
 1. **Camera Distance**: Set it larger than your object's maximum dimension
@@ -88,9 +101,16 @@ The add-on creates a spherical distribution of cameras around your object using:
 - Processing time increases with camera count and mesh complexity
 - Very small details might require higher camera counts to detect
 
+## Experimental Features
+
+The experimental mode allows for:
+- Randomized face sampling to reduce processing time
+- Similar face detection based on normal angle
+- More flexible and adaptive geometry removal
+
 ## Feedback
 
-Feel free to submit issues.
+Feel free to submit issues or feature requests.
 
 ## License
 
