@@ -2,12 +2,12 @@
 ### A Blender Add-on for Optimizing 3D Models
 
 ![Blender Version](https://img.shields.io/badge/Blender-4.0%2B-orange)
-![Version](https://img.shields.io/badge/Version-0.1.2-blue)
+![Version](https://img.shields.io/badge/Version-0.1.3-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ## Overview
 
-Hidden Geometry Removal is a powerful Blender add-on that automatically identifies and removes geometry that cannot be seen from any viewing angle. This tool is perfect for optimizing 3D models for real-time applications, game engines, or web-based 3D viewers.
+Hidden Geometry Removal is a powerful Blender add-on that automatically identifies and removes geometry that cannot be seen from any viewing angle. This tool is perfect for optimizing 3D models for real-time applications, game engines, or web-based 3D viewers. **Important: Only merged objects can properly delete inside/hidden meshes** - the addon includes built-in mesh merging functionality to handle this requirement efficiently.
 
 ![image](https://github.com/user-attachments/assets/5b3d57c6-6b47-4a98-ac3b-9883a3bb17dd)
 
@@ -21,6 +21,7 @@ Hidden Geometry Removal is a powerful Blender add-on that automatically identifi
 - 📷 Option to keep cameras for visualization
 - 🧪 Experimental mode with randomized face selection
 - 📊 Configurable face sampling and flatness threshold
+- 🔗 Built-in mesh merging functionality for proper internal geometry removal
 
 ## Installation
 
@@ -34,6 +35,8 @@ Hidden Geometry Removal is a powerful Blender add-on that automatically identifi
 1. Select your mesh object in the 3D viewport
 2. Open the sidebar (`N` key) and find the "Hidden Removal" tab
 3. Adjust the settings:
+   - **Merge Meshes**: Enable to combine all meshes (required for proper internal geometry removal)
+   - **Merge by Distance**: Option to merge vertices that are close to each other
    - **Number of Rows**: Controls the number of vertical camera splines around the object
    - **Cameras per Row**: Sets how many cameras are placed along each spline
    - **Camera Distance**: Adjusts how far cameras are from the object's center
@@ -51,7 +54,13 @@ The add-on creates a spherical distribution of cameras around your object using:
 - Automatic camera positioning and targeting
 - Ray-casting for visibility checks
 
+For proper internal geometry removal, the add-on first merges all selected meshes into a single object. This ensures that occluded geometry within complex models (like interior walls or internal components) can be properly identified and removed.
+
 ## Settings Explained
+
+### Mesh Processing
+- **Merge Meshes**: When enabled, all mesh objects in the scene are combined before processing
+- **Merge by Distance**: Cleans up the mesh by merging vertices that are very close to each other
 
 ### Camera Distribution
 - **Rows**: More rows = more thorough horizontal coverage
@@ -82,11 +91,12 @@ The add-on creates a spherical distribution of cameras around your object using:
 
 ## Best Practices
 
-1. **Camera Distance**: Set it larger than your object's maximum dimension
-2. **Number of Cameras**: Start with default values and increase if needed
-3. **Precision Mode**: Use 'High' for final processing, 'Low' for testing
-4. **Backup**: Always save your file before processing large models
-5. **Visualization**: Enable 'Keep Cameras' option to understand camera placement for complex cases
+1. **Always Enable Mesh Merging**: To properly remove internal geometry, keep the "Merge Meshes" option enabled
+2. **Camera Distance**: Set it larger than your object's maximum dimension
+3. **Number of Cameras**: Start with default values and increase if needed
+4. **Precision Mode**: Use 'High' for final processing, 'Low' for testing
+5. **Backup**: Always save your file before processing large models
+6. **Visualization**: Enable 'Keep Cameras' option to understand camera placement for complex cases
 
 ## Performance Tips
 
