@@ -9,7 +9,7 @@
 
 Hidden Geometry Removal is a powerful Blender add-on that automatically identifies and removes geometry that cannot be seen from any viewing angle. This tool is perfect for optimizing 3D models for real-time applications, game engines, or web-based 3D viewers. **Important: Only merged objects can properly delete inside/hidden meshes** - the addon includes built-in mesh merging functionality to handle this requirement efficiently.
 
-![image](https://github.com/user-attachments/assets/5b3d57c6-6b47-4a98-ac3b-9883a3bb17dd)
+![image](https://github.com/user-attachments/assets/67b32d17-c5ef-45a9-93be-28ccedfc7532)
 
 ## Features
 
