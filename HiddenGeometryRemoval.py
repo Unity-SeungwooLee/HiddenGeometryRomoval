@@ -1,10 +1,10 @@
 bl_info = {
     "name": "Hidden Geometry Removal",
     "author": "Seungwoo Lee",
-    "version": (0, 1, 2),
+    "version": (0, 1, 3),
     "blender": (4, 0, 0),
     "location": "View3D > Sidebar (N) > Hidden Removal",
-    "description": "Removes geometry that is not visible from multiple camera positions. Includes experimental randomized face selection.",
+    "description": "Removes geometry that is not visible from multiple camera positions. Includes mesh merging options and experimental randomized face selection",
     "warning": "",
     "doc_url": "",
     "category": "Object",
@@ -218,6 +218,32 @@ def delete_all_cameras():
             bpy.data.objects.remove(obj, do_unlink=True)
 
 
+def merge_all_meshes():
+    """
+    Merge all mesh objects in the scene into a single object
+    """
+    # Deselect all objects first
+    bpy.ops.object.select_all(action='DESELECT')
+    
+    # Get all mesh objects in the scene
+    mesh_objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
+    
+    if not mesh_objects:
+        return None
+    
+    # Make the first mesh object the active object
+    bpy.context.view_layer.objects.active = mesh_objects[0]
+    mesh_objects[0].select_set(True)
+    
+    # Join all other mesh objects to the first one
+    for obj in mesh_objects[1:]:
+        obj.select_set(True)
+    
+    bpy.ops.object.join()
+    
+    return bpy.context.active_object
+
+
 class HiddenRemovalProperties(PropertyGroup):
     rows: IntProperty(
         name="Number of Rows",
@@ -291,6 +317,18 @@ class HiddenRemovalProperties(PropertyGroup):
         min=10.0,
         max=90.0,
     )
+    
+    merge_meshes: BoolProperty(
+        name="Merge Meshes",
+        description="Merge all mesh objects in the scene before processing",
+        default=True,
+    )
+
+    merge_by_distance: BoolProperty(
+        name="Merge by Distance",
+        description="Merge vertices that are very close to each other",
+        default=True,
+    )
 
 
 class OBJECT_OT_hidden_geometry_removal(Operator):
@@ -299,12 +337,22 @@ class OBJECT_OT_hidden_geometry_removal(Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        obj = context.active_object
+        props = context.scene.hidden_removal_props
+        
+        # Merge meshes if option is checked
+        original_objects = []
+        merged_object = None
+        if props.merge_meshes:
+            # Store original objects to restore later if needed
+            original_objects = list(bpy.context.selected_objects)
+            merged_object = merge_all_meshes()
+            obj = merged_object
+        else:
+            obj = context.active_object
+
         if not obj or obj.type != 'MESH':
             self.report({'ERROR'}, "Please select a mesh object")
             return {'CANCELLED'}
-
-        props = context.scene.hidden_removal_props
 
         # Delete existing cameras
         delete_all_cameras()
@@ -329,6 +377,13 @@ class OBJECT_OT_hidden_geometry_removal(Operator):
 
         if props.delete_select_mode == 'DELETE':
             delete_invisible_faces()
+        
+        # Merge by distance if option is checked
+        if props.merge_by_distance:
+            bpy.ops.object.mode_set(mode='EDIT')
+            bpy.ops.mesh.select_all(action='SELECT')
+            bpy.ops.mesh.remove_doubles(threshold=0.0001)
+            bpy.ops.object.mode_set(mode='OBJECT')
         
         # Count remaining faces
         bpy.ops.object.mode_set(mode='EDIT')
@@ -364,6 +419,18 @@ class VIEW3D_PT_hidden_geometry_removal(Panel):
         # Settings box
         box = layout.box()
         box.label(text="Settings")
+        
+        # Merge options section (new)
+        col = box.column()
+        col.prop(props, "merge_meshes")
+        col.prop(props, "merge_by_distance")
+        col.separator()
+
+        # Rows section
+        col = box.column()
+        col.label(text="Number of vertical camera splines")
+        col.prop(props, "rows")
+        col.separator()
 
         # Rows section
         col = box.column()
